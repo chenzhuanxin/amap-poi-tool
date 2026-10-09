@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>高德 POI 数量预估 · 配额预警 · 多Key爬取</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <div class="logo">POI</div>
+      <div>
+        <h1>高德 POI 爬取 · 范围与配额预估</h1>
+        <p>选择省市县 × POI 分类 → 预估数量 → 检测单 Key 上限 → 超额自动换 Key → 超总配额强制预警</p>
+      </div>
+    </div>
+    <div class="right">
+      <span class="pill"><span class="conn"></span><b id="keyCount">0</b> 个 Key</span>
+      <span class="pill">单次 ≤ <b>25</b> 条 · 单组合上限 <b id="maxComboPill">200</b></span>
+    </div>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ============ 左列：配置 ============ -->
+  <section>
+    <!-- 1. 行政区 -->
+    <div class="card">
+      <div class="card-head"><div class="step">1</div><h2>选择行政范围</h2><span class="hint">可勾选省 / 市 / 区县，多选自动去重</span></div>
+      <div class="region-cols" id="regionCols">
+        <div class="rcol" id="colProv"><div class="rtitle">省份<span class="cnt" id="cProv">0</span></div><div class="rsearch"><input id="qProv" placeholder="搜索省份…"></div><div class="rlist" id="lProv"></div><div class="rall"><button class="btn secondary sm" id="allProv">全选省</button></div></div>
+        <div class="rcol" id="colCity"><div class="rtitle">城市<span class="cnt" id="cCity">0</span></div><div class="rsearch"><input id="qCity" placeholder="搜索城市…"></div><div class="rlist" id="lCity"></div><div class="rall"><button class="btn secondary sm" id="allCity">全选当前市</button></div></div>
+        <div class="rcol" id="colArea"><div class="rtitle">区县<span class="cnt" id="cArea">0</span></div><div class="rsearch"><input id="qArea" placeholder="搜索区县…"></div><div class="rlist" id="lArea"></div><div class="rall"><button class="btn secondary sm" id="allArea">全选当前区县</button></div></div>
+      </div>
+      <div class="selbar" id="selBar"></div>
+      <div class="selbar">
+        <button class="btn ghost2 sm" id="clearRegions">清空范围</button>
+        <span class="empty-tip" id="regionStat">未选择任何区域</span>
+      </div>
+    </div>
+
+    <!-- 2. POI 分类 -->
+    <div class="card">
+      <div class="card-head"><div class="step">2</div><h2>选择 POI 分类</h2><span class="hint">一级分类 + 二级分类联动，可自定义 typecode</span></div>
+      <div class="cat-grid" id="catGrid"></div>
+      <div class="manual-box">
+        <input id="manualType" placeholder="手动输入 typecode / 分类名，用 | 分隔，如 050100|060101">
+        <button class="btn secondary sm" id="addManual">添加</button>
+      </div>
+      <div class="selbar" id="catSelBar"></div>
+    </div>
+
+    <!-- 3. API Key -->
+    <div class="card">
+      <div class="card-head"><div class="step">3</div><h2>高德开放平台 API Key</h2><span class="hint">可单个添加或批量导入，多 Key 自动轮询</span></div>
+      <div class="key-add">
+        <input id="keyInput" placeholder="粘贴单个 key（形如 a1b2c3d4e5f6…）">
+        <input id="keyNote" placeholder="备注（可选）" style="flex:0 0 120px">
+        <button class="btn secondary sm" id="addKey">添加</button>
+      </div>
+      <div class="key-import">
+        <textarea id="keyImport" placeholder="批量导入：每行一个 key，可用 | 附加备注，例如：&#10;aaaaaaaaaaaaaaaaaaaaaaaa&#10;bbbbbbbbbbbbbbbbbbbbbbbb|企业认证2号"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn primary sm" id="importKeys">批量导入</button>
+          <button class="btn ghost2 sm" id="clearKeys">清空全部</button>
+          <span class="empty-tip" id="keyHint" style="margin:auto 0 0 auto">默认按「个人认证 · 搜索类 · 日配额 5000 次」预估</span>
+        </div>
+      </div>
+      <div class="key-list" id="keyList"></div>
+    </div>
+
+    <!-- 4. 参数 -->
+    <div class="card">
+      <div class="card-head"><div class="step">4</div><h2>配额与分片参数</h2><span class="hint">影响预估与预警口径</span></div>
+      <div class="params-grid">
+        <div class="field"><label>每次返回条数 <code class="inline">offset</code></label><input type="number" id="perRequest" value="20" min="1" max="25"></div>
+        <div class="field"><label>单组合翻页上限</label><input type="number" id="maxPerCombo" value="200" min="25"></div>
+        <div class="field"><label>单 Key 日配额(次)</label><input type="number" id="defQuota" value="5000" min="1"></div>
+        <div class="field"><label>单 Key QPS</label><input type="number" id="defQps" value="3" min="1"></div>
+      </div>
+      <div class="divider"></div>
+      <div class="field">
+        <label style="min-width:0">预估模式</label>
+        <label style="display:flex;align-items:center;gap:6px;min-width:0"><input type="radio" name="mode" value="full" checked> 全量逐组合（最准）</label>
+        <label style="display:flex;align-items:center;gap:6px;min-width:0"><input type="radio" name="mode" value="sample"> 抽样估算</label>
+        <span class="empty-tip" style="margin:0">抽样数 <input type="number" id="sampleSize" value="50" min="1" style="width:60px;border:1px solid var(--line);border-radius:7px;padding:3px 6px"></span>
+      </div>
+      <div class="kv" style="margin-top:8px">
+        <dt>单组合上限</dt><dd>超过该条数的组合会自动<b>分片</b>（二级分类展开 / 多边形网格）</dd>
+        <dt>超额逻辑</dt><dd>所需调用次数 &gt; 全部 Key 免费配额 → <b style="color:var(--danger)">强制预警「可能限号」</b></dd>
+      </div>
+    </div>
+
+    <!-- 5. 操作 -->
+    <div class="card">
+      <div class="card-head"><div class="step">5</div><h2>执行</h2></div>
+      <div class="actions">
+        <button class="btn primary" id="btnEstimate">① 预估 POI 数量</button>
+        <button class="btn secondary" id="btnCrawl">② 开始爬取</button>
+      </div>
+      <p class="empty-tip" style="margin:10px 0 0">①预估会逐个组合调用一次真实接口读取 count（消耗少量配额）；②爬取将按 Key 轮询、自动分片、超额暂停。</p>
+    </div>
+  </section>
+
+  <!-- ============ 右列：结果 ============ -->
+  <section>
+    <div class="card" id="estCard" style="display:none">
+      <div class="card-head"><div class="step">估</div><h2>预估结果 &amp; 配额报告</h2><span class="hint" id="estStamp"></span></div>
+      <div class="stat-grid" id="statGrid"></div>
+      <div id="warnBox"></div>
+      <div class="divider"></div>
+      <div class="kv">
+        <dt>勾选范围</dt><dd id="estSel">—</dd>
+        <dt>覆盖组合</dt><dd id="estCombo">—</dd>
+        <dt>预估调用次数</dt><dd id="estCalls">—</dd>
+        <dt>单 Key 最大可获取</dt><dd id="estSingle">—</dd>
+        <dt>全部 Key 免费上限</dt><dd id="estAllKey">—</dd>
+        <dt>预计耗时(按QPS)</dt><dd id="estTime">—</dd>
+        <dt>需分片组合数</dt><dd id="estShard">—</dd>
+      </div>
+      <div id="distBlock" style="margin-top:14px"></div>
+    </div>
+
+    <div class="card" id="crawlCard" style="display:none">
+      <div class="card-head"><div class="step">爬</div><h2>爬取进度</h2><span class="hint" id="crawlStamp"></span></div>
+      <div class="progress-wrap">
+        <div class="progress" id="crawlBar"><i></i></div>
+        <div class="prog-meta"><span id="crawlMeta">等待开始…</span><span id="crawlPct">0%</span></div>
+      </div>
+      <div id="crawlResult"></div>
+      <div class="logbox" id="crawlLog"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="step">?</div><h2>数据口径说明</h2></div>
+      <div class="kv">
+        <dt>单次请求</dt><dd>高德 <code class="inline">offset/page_size</code> 建议 ≤ 25</dd>
+        <dt>单组合上限</dt><dd>官方「同请求参数翻页最多获取 <b>200</b> 条」，超过需分片</dd>
+        <dt>免费配额</dt><dd>个人认证「搜索服务」约 5000 次/月，日配额约 5000 次/日（以控制台为准）</dd>
+        <dt>限号风险</dt><dd>错误码 10003（日超限）、10004（过频）会被系统封停，次日自动解封</dd>
+        <dt>分片方式</dt><dd>① 二级分类展开；② 获取区县边界后用多边形网格自适应细分</dd>
+        <dt>多 Key</dt><dd>单 Key 配额耗尽/被封自动轮询下一个；全部耗尽则暂停等待</dd>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <span>设计：公歧子</span><span class="sep">｜</span><span>微信：gongqizi0</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
