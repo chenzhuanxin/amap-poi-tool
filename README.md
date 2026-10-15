@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" width="120" alt="amap-poi-tool"></p>
+
 # 高德 POI 数量预估・配额预警・多 Key 爬取工具
 
 一个基于 **Python(Flask) + HTML/JS** 的本地 Web 工具。在浏览器里勾选「省 / 市 / 区县」和「POI 一级 / 二级分类」，即可：
